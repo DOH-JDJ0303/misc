@@ -68,7 +68,7 @@ ids <- df.epi %>%
   .$ALT_ID %>%
   paste(collapse = ",")
 query <- paste0("'SELECT * FROM `ncbi-pathogen-detect.pdbrowser.isolates` AS isolates, UNNEST(isolates.isolate_identifiers) AS identifier WHERE identifier IN (",ids,")'")
-#system(command = paste0('bq query --nouse_legacy_sql --format=prettyjson ',query,' > bigquery.json'), intern = T) #%>%
+system(command = paste0('bq query --nouse_legacy_sql --format=prettyjson ',query,' > bigquery.json'), intern = T) #%>%
 df.ncbi <-  fromJSON(file = 'bigquery.json') %>%
   spread_all() %>%
   data.frame() %>%
