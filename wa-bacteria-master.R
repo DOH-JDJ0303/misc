@@ -26,8 +26,9 @@ if(!require(knitr)){
 #----- ARGUMENTS -----#
 args <- commandArgs(trailingOnly=TRUE)
 epi_data <- args[1]
-phx_data <- args[2]
-bigb_data <- args[3]
+phx_std_data <- args[2]
+phx_terra_data <- args[3]
+bigb_data <- args[4]
 
 #----- LOAD FILES -----#
 ## EPI DATA
@@ -38,14 +39,62 @@ df.epi <- read_excel(epi_data) %>%
          )
 
 ## PHOENIX
+# standard output
 load_phoenix <- function(file){
-  df <- read_tsv(file, col_types = cols()) %>%
+  df <- read_tsv(file) %>%
     mutate(ID = str_remove_all(ID, pattern = "-WAPHL-.*")) %>%
-    rename(PHOENIX_QC = Auto_QC_Outcome, PHOENIX_SPECIES = Species, PHOENIX_QC_REASON = Auto_QC_Failure_Reason, TAXA_CONFIDENCE = Taxa_Confidence)
+    rename(PHOENIX_QC = Auto_QC_Outcome, 
+           PHOENIX_SPECIES = Species, 
+           PHOENIX_QC_REASON = Auto_QC_Failure_Reason, 
+           TAXA_CONFIDENCE = Taxa_Confidence)
 }
-files.phx <- list.files(phx_data, pattern = ".tsv", full.names = T)
+files.phx <- list.files(phx_std_data, pattern = ".tsv", full.names = T)
 tmp <- lapply(files.phx, FUN=load_phoenix)
-df.phx <- do.call(rbind, tmp) %>%
+df.phx_std <- do.call(rbind, tmp)
+
+# Terra output
+load_terra_phoenix <- function(file){
+  df <- read_tsv(file) %>%
+    rename(ID = 1) %>%
+    mutate(ID = str_remove_all(ID, pattern = "-WA.*")) %>%
+    mutate(Taxa_Coverage = NA) %>%
+    select(ID, 
+           qc_outcome, 
+           warning_count, 
+           estimated_coverage, 
+           genome_length, 
+           assembly_ratio, 
+           scaffold_count, 
+           gc_percent, 
+           species, 
+           taxa_confidence,
+           Taxa_Coverage,
+           taxa_source, 
+           kraken2_trimmed, 
+           kraken2_weighted,
+           mlst_scheme_1,
+           mlst_1,
+           mlst_scheme_2,
+           mlst_2,
+           beta_lactam_resistance_genes,
+           other_ar_genes,
+           amrfinder_point_mutations,
+           hypervirulence_genes,
+           plasmid_incompatibility_replicons,
+           qc_reason,
+           assembly,
+           trimmed_read1,
+           trimmed_read2)
+}
+files.terra_phx <- list.files(phx_terra_data, pattern = ".tsv", full.names = T)
+tmp <- lapply(files.terra_phx, FUN=load_terra_phoenix)
+df.phx_terra <- do.call(rbind, tmp)
+colnames(df.phx_terra) <- c(colnames(df.phx_std),"assembly","fastq_1","fastq_2")
+
+# Combined
+df.phx <- df.phx_terra %>% 
+  select(-assembly, -fastq_1, -fastq_2) %>% 
+  rbind(df.phx_std) %>%
   mutate(PHX = TRUE)
 
 ## BIGBACTER
@@ -62,19 +111,56 @@ df.bb <- do.call(rbind, tmp) %>%
 
 ## NCBI
 ### pull data using BigQuery
+system("mkdir ncbi")
+bigquery <- function(id){
+  id <- paste0('"',id,'"')
+  query <- paste0("'SELECT * FROM \`ncbi-pathogen-detect.pdbrowser.isolates\` AS isolates, UNNEST(isolates.isolate_identifiers) AS identifier WHERE identifier = ",id,"'")
+  cmd <- paste0('bq query --nouse_legacy_sql --format=prettyjson ',query,' > ncbi/',id,'.json')
+  cat(cmd, sep = "\n")
+  system(command = cmd, intern = T)
+}
+past_ids <- list.files("ncbi/") %>% str_remove_all(pattern = ".json")
 ids <- df.epi %>% 
   drop_na(ALT_ID) %>%
-  mutate(ALT_ID = paste0('"',ALT_ID,'"')) %>%
   .$ALT_ID %>%
-  paste(collapse = ",")
-query <- paste0("'SELECT * FROM `ncbi-pathogen-detect.pdbrowser.isolates` AS isolates, UNNEST(isolates.isolate_identifiers) AS identifier WHERE identifier IN (",ids,")'")
-system(command = paste0('bq query --nouse_legacy_sql --format=prettyjson ',query,' > bigquery.json'), intern = T) #%>%
-df.ncbi <-  fromJSON(file = 'bigquery.json') %>%
-  spread_all() %>%
-  data.frame() %>%
-  select(identifier, Run, asm_acc, bioproject_acc, collection_date, epi_type, isolation_source, mindiff, minsame, scientific_name, erd_group) %>%
-  rename(ID = identifier)
+  unique()
 
+ids <- ids[!(ids %in% past_ids)]
+if(length(ids) > 0){
+  lapply(ids, FUN = bigquery)
+}
+
+load_ncbi <- function(file){
+  # check if json file is empty
+  if(read_lines(file) != "[]"){
+    df <- fromJSON(file = file) %>%
+      spread_all() %>%
+      data.frame() %>%
+      select(identifier, Run, asm_acc, bioproject_acc, collection_date, epi_type, isolation_source, mindiff, minsame, scientific_name, erd_group) %>%
+      rename(ID = identifier)
+  }else{
+    df <- data.frame(ID = NA,
+                     Run = NA, 
+                     asm_acc = NA,
+                     bioproject_acc = NA,
+                     collection_date = NA,
+                     epi_type = NA,
+                     isolation_source = NA,
+                     mindiff = NA,
+                     minsame = NA,
+                     scientific_name = NA, 
+                     erd_group = NA)
+  }
+
+  return(df)
+}
+files.ncbi <- list.files('ncbi/', pattern = ".json", full.names = T)
+tmp <- lapply(files.ncbi, FUN=load_ncbi)
+df.ncbi <- do.call(rbind, tmp) %>%
+  drop_na(ID)
+df.ncbi <- apply(df.ncbi, 2, FUN = str_replace_all, pattern = ",", replacement = ";") %>%
+  data.frame()
+write.csv(x = df.ncbi, file = "bigquery.csv", quote = F, row.names = F)
 
 #----- MERGE FILES -----# - without NCBI for now
 # join epi & phoenix
@@ -87,7 +173,7 @@ df.epi_phx_bb <- merge(df.epi_phx, df.bb, by = "ID", all = T)
 # join NCBI
 df.epi_phx_bb_ncbi <- merge(df.epi_phx_bb, df.ncbi, by = "ID", all = T)
 
-# check for problems - excludes NCBI because we expect there to be missing samples
+#----- SANITY CHECK -----#
 ## Missing from epi dataset
 epi_miss <- df.epi_phx_bb_ncbi %>%
   subset(is.na(EPI)) %>%
@@ -135,6 +221,7 @@ if(nrow(dup) > 0){
     cat(sep = "\n")
 }
 
+#----- WRITE TO MASTER -----#
 # clean up data
 master <- df.epi_phx_bb_ncbi %>%
   mutate(STATUS = case_when(is.na(PHOENIX_QC) ~ "PHOENIX_QUEUE",
@@ -150,3 +237,14 @@ master <- apply(master, 2, FUN = str_replace_all, pattern = ",", replacement = "
 
 # save master
 write.csv(x = master, file = "wa-bacteria-master.csv", quote = F, row.names = F)
+
+#----- TERRA SAMPLES FOR BIGBACTER -----#
+bb_queue <- master %>%
+  data.frame() %>%
+  subset(PHOENIX_QC == "PASS" & STATUS == "BIGBACTER_QUEUE")
+
+df.phx_terra[df.phx_terra$ID %in% bb_queue$ID,] %>%
+  select(ID, PHOENIX_SPECIES, assembly, fastq_1, fastq_2) %>%
+  rename(taxa = PHOENIX_SPECIES) %>%
+  mutate(taxa = str_replace_all(taxa, pattern = " ", replacement = "_")) %>%
+  write.csv(file = "master-bb-terra.csv", quote = F, row.names = F)
