@@ -16,6 +16,6 @@ do
 
     if [[ ${qc} == "PASS"  ]]
     then
-        echo "${id},${taxa},${path}/assembly/${id}/${id}.scaffolds.fa.gz,${path}/${id}/fastp_trimd/${id}_1.trim.fastq.gz,${path}/${id}/fastp_trimd/${id}_2.trim.fastq.gz" >> manifest.csv
+        echo "${id},${taxa},${path}/${id}/assembly/${id}.scaffolds.fa.gz,${path}/${id}/fastp_trimd/${id}_1.trim.fastq.gz,${path}/${id}/fastp_trimd/${id}_2.trim.fastq.gz" >> manifest.csv
     fi
 done
