@@ -247,4 +247,4 @@ df.phx_terra[df.phx_terra$ID %in% bb_queue$ID,] %>%
   select(ID, PHOENIX_SPECIES, assembly, fastq_1, fastq_2) %>%
   rename(taxa = PHOENIX_SPECIES) %>%
   mutate(taxa = str_replace_all(taxa, pattern = " ", replacement = "_")) %>%
-  write.csv(file = "master-bb-terra.csv", quote = F, row.names = F)
+  write.csv(file = "terra-samples-for-bigbacter.csv", quote = F, row.names = F)
