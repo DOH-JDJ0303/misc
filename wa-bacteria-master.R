@@ -29,20 +29,22 @@ epi_data <- args[1]
 phx_std_data <- args[2]
 phx_terra_data <- args[3]
 bigb_data <- args[4]
+bigb_db_path <- args[5]
 
 #----- LOAD FILES -----#
 ## EPI DATA
 df.epi <- read_excel(epi_data) %>%
   mutate(ID = case_when(is.na(ALT_ID) ~ WA_ID,
                         TRUE ~ ALT_ID),
-        EPI = TRUE
+        EPI = "COMPLETE"
          )
+write.csv(df.epi, file = "epi.csv", row.names = F, quote = F)
 
 ## PHOENIX
 # standard output
 load_phoenix <- function(file){
   df <- read_tsv(file) %>%
-    mutate(ID = str_remove_all(ID, pattern = "-WAPHL-.*")) %>%
+    mutate(ID = str_remove_all(ID, pattern = "-WA.*")) %>%
     rename(PHOENIX_QC = Auto_QC_Outcome, 
            PHOENIX_SPECIES = Species, 
            PHOENIX_QC_REASON = Auto_QC_Failure_Reason, 
@@ -95,11 +97,14 @@ colnames(df.phx_terra) <- c(colnames(df.phx_std),"assembly","fastq_1","fastq_2")
 df.phx <- df.phx_terra %>% 
   select(-assembly, -fastq_1, -fastq_2) %>% 
   rbind(df.phx_std) %>%
-  mutate(PHX = TRUE)
+  mutate(PHX = "COMPLETE")
+write.csv(df.phx, file = "phoenix.csv", row.names = F, quote = F)
 
 ## BIGBACTER
+### load BigBacter results
 load_bigbacter <- function(file){
   df <- read_tsv(file, col_types = cols()) %>%
+    mutate(ID = str_remove_all(ID, pattern = "-WA.*")) %>%
     subset(STATUS == "NEW") %>%
     select(ID, QUAL, RUN_ID, CLUSTER) %>%
     rename(BIGBACTER_QC = QUAL, BIGBACTER_RUN = RUN_ID)
@@ -107,7 +112,16 @@ load_bigbacter <- function(file){
 files.bb <- list.files(bigb_data, pattern = ".tsv", full.names = T)
 tmp <- lapply(files.bb, FUN=load_bigbacter)
 df.bb <- do.call(rbind, tmp) %>%
-  mutate(BB = TRUE)
+  mutate(BB = "COMPLETE")
+
+write.csv(df.bb, file = "bigbacter.csv", row.names = F, quote = F)
+
+### get list of species with BigBacter DBs
+bb_species <- system(paste0("aws s3 ls ",bigb_db_path," | grep 'PRE' | sed 's/.*PRE//g' | tr -d '/'"), intern= T) %>%
+  split(" ") %>%
+  .$` ` %>%
+  str_remove_all(pattern = " ") %>%
+  str_replace_all(pattern = "_", replacement = " ")
 
 ## NCBI
 ### pull data using BigQuery
@@ -165,45 +179,61 @@ write.csv(x = df.ncbi, file = "bigquery.csv", quote = F, row.names = F)
 #----- MERGE FILES -----# - without NCBI for now
 # join epi & phoenix
 df.epi_phx <- df.epi %>%
-  merge(df.phx, by = "ID", all = T)
+  merge(df.phx, by = "ID", all.x = T)
 
 # join bigbacter
-df.epi_phx_bb <- merge(df.epi_phx, df.bb, by = "ID", all = T)
+df.epi_phx_bb <- merge(df.epi_phx, df.bb, by = "ID", all.x = T)
 
 # join NCBI
-df.epi_phx_bb_ncbi <- merge(df.epi_phx_bb, df.ncbi, by = "ID", all = T)
+df.epi_phx_bb_ncbi <- merge(df.epi_phx_bb, df.ncbi, by = "ID", all.x = T)
 
-#----- SANITY CHECK -----#
-## Missing from epi dataset
-epi_miss <- df.epi_phx_bb_ncbi %>%
-  subset(is.na(EPI)) %>%
-  select(ID, EPI, PHX, BB)
+# replace all commas with semicolons
+df.epi_phx_bb_ncbi <- apply(df.epi_phx_bb_ncbi, 2, FUN = str_replace_all, pattern = ",", replacement = ";") %>%
+  data.frame()
 
-if(nrow(epi_miss) > 0){
-  cat("\nTHESE SAMPLES ARE MISSING FROM THE EPI DATASET:", sep = "\n")
-  epi_miss %>%
-    kable() %>%
-    cat(sep = "\n")
-}
+#----- SAMPLE CHECK -----#
 ## Missing from PHoeNIx dataset
 phx_miss <- df.epi_phx_bb_ncbi %>%
-  subset(is.na(PHX)) %>%
-  select(ID, EPI, PHX, BB)
+  subset(is.na(PHX))
+
+write.csv(phx_miss, file = "phoenix-miss.csv", row.names = F, quote = F)
 
 if(nrow(phx_miss) > 0){
   cat("\nTHESE SAMPLES ARE MISSING FROM THE PHOENIX DATASET:", sep = "\n")
   phx_miss %>%
+    select(ID, EPI, PHX, BB) %>%
     kable() %>%
     cat(sep = "\n")
 }
 ## Missing from BigBacter dataset
+### Missing but has database
 bb_miss <- df.epi_phx_bb_ncbi %>%
-  subset(is.na(BB)) %>%
-  select(ID, EPI, PHX, BB)
+  subset(PHOENIX_SPECIES %in% bb_species) %>%
+  subset(is.na(BB) & PHOENIX_QC == "PASS")
 
 if(nrow(bb_miss) > 0){
   cat("\nTHESE SAMPLES ARE MISSING FROM THE BIGBACTER DATASET:", sep = "\n")
   bb_miss %>%
+    select(ID, EPI, PHX, BB) %>%
+    kable() %>%
+    cat(sep = "\n")
+}
+
+write.csv(bb_miss, file = "bigbacter-miss.csv", row.names = F, quote = F)
+
+### Missing but does not have database
+bb_miss_db <- df.epi_phx_bb_ncbi %>%
+  subset(!(PHOENIX_SPECIES %in% bb_species)) %>%
+  subset(is.na(BB) & PHOENIX_QC == "PASS") %>%
+  group_by(PHOENIX_SPECIES) %>%
+  count()
+
+write.csv(bb_miss_db, file = "bigbacter-miss-db.csv", row.names = F, quote = F)
+
+if(nrow(bb_miss_db) > 0){
+  cat("\nTHESE SPECIES DO NO HAVE A BIGBACTER DATABASE:", sep = "\n")
+  bb_miss_db %>%
+    arrange(desc(n)) %>%
     kable() %>%
     cat(sep = "\n")
 }
@@ -213,6 +243,9 @@ dup <- df.epi_phx_bb_ncbi %>%
   group_by(ID) %>%
   count() %>%
   subset(n > 1) 
+
+write.csv(dup, file = "dup-samples.csv", row.names = F, quote = F)
+
 if(nrow(dup) > 0){
   cat("\nTHESE SAMPLES ARE DUPLICATED:", sep = "\n")
   dup %>%
@@ -232,8 +265,6 @@ master <- df.epi_phx_bb_ncbi %>%
                             )
          ) %>%
   select(ID, WA_ID, ALT_ID, STATUS, PHOENIX_QC, BIGBACTER_QC, LAB_SPECIES, PHOENIX_SPECIES, TAXA_CONFIDENCE, CLUSTER, MLST_1, MLST_2, SEQ_LAB, SAMPLE_TYPE, COLLECTION_DATE, SUBMITTER, BIGBACTER_RUN,PHOENIX_QC_REASON, GAMMA_Beta_Lactam_Resistance_Genes, GAMMA_Other_AR_Genes, AMRFinder_Point_Mutations, Hypervirulence_Genes, Plasmid_Incompatibility_Replicons, Run, asm_acc, bioproject_acc, collection_date, epi_type, isolation_source, mindiff, minsame, scientific_name, erd_group)
-# replace all commas with semicolons
-master <- apply(master, 2, FUN = str_replace_all, pattern = ",", replacement = ";")
 
 # save master
 write.csv(x = master, file = "wa-bacteria-master.csv", quote = F, row.names = F)
