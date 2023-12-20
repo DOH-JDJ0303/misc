@@ -26,112 +26,154 @@ if(!require(knitr)){
 #----- ARGUMENTS -----#
 args <- commandArgs(trailingOnly=TRUE)
 epi_data <- args[1]
-phx_std_data <- args[2]
-phx_terra_data <- args[3]
-bigb_data <- args[4]
-bigb_db_path <- args[5]
+hai_tracker <- args[2]
+phx_aws <- args[3]
+phx_gs <- args[4]
+bb_aws <- args[5]
+bb_aws_db <- args[6]
+
+#----- FUNCTIONS -----#
+# function for syncing files from AWS
+aws_sync_merge <- function(s3_paths, outdir, pattern){
+  aws_sync <- function(s3_path){
+    cmd <- paste0('aws s3 sync ',s3_path,' ',outdir,' --exclude "*" --include "',pattern,'"')
+    cat(paste0("CMD: ",cmd,"\n"))
+    system(cmd)
+  }
+  s3_paths <- str_split(s3_paths, pattern = ",") %>% 
+    unlist()
+  lapply(s3_paths, FUN = aws_sync)
+
+  load_files <- function(file){
+    df <- read_tsv(file, show_col_types = F)
+  }
+  files <- list.files(outdir, pattern = pattern, recursive = T, full.names = T)
+  result <- do.call(rbind, lapply(files, FUN = load_files)) %>%
+    unique()
+
+  return(result)
+}
+
+# function for syncing files from Google Cloud
+gs_sync_merge <- function(gs_paths, outdir, pattern, n_cols){
+  gs_sync <- function(gs_path){
+    cmd <- paste0('gsutil rsync -r -x "',gs_pattern,'" ',gs_path,' ',outdir)
+    cat(paste0("CMD: ",cmd,"\n"))
+    system(cmd)
+  }
+  gs_paths <- str_split(gs_paths, pattern = ",") %>% 
+    unlist()
+  gs_pattern = paste0('^(?!.*',pattern,'$).*')
+  lapply(gs_paths, FUN = gs_sync)
+
+  load_files <- function(file){
+    df <- read_tsv(file, show_col_types = F)
+    if(ncol(df) == n_cols){
+        return(df)
+    }
+  }
+  files <- list.files(outdir, pattern = pattern, recursive = T, full.names = T)
+  result <- do.call(rbind, lapply(files, FUN = load_files)) %>%
+    unique()
+
+  return(result)
+}
 
 #----- LOAD FILES -----#
-## EPI DATA
-df.epi <- read_excel(epi_data) %>%
+# Create temp directory to store intermediate files
+dir.create("tmp")
+# EPI DATA
+## Manually entered
+df.epi_man <- read_excel(epi_data) %>%
   mutate(ID = case_when(is.na(ALT_ID) ~ WA_ID,
                         TRUE ~ ALT_ID),
         EPI = "COMPLETE"
          )
+
+## HAI Tracker
+df.epi_hai <-  read_excel(hai_tracker, sheet = "Tracker", skip = 8, guess_max = 10000) %>%
+  rename(WA_ID = 2,
+         ALT_ID = 3,
+         LAB_SPECIES = 4,
+         STATE = 7) %>%
+  select(WA_ID, ALT_ID, LAB_SPECIES, STATE) %>%
+  mutate(SUBMITTER = NA,
+         SEQ_LAB = "ARLN",
+         SAMPLE_TYPE = "CLINICAL",
+         COLLECTION_DATE = NA,
+         ID = case_when(is.na(ALT_ID) ~ WA_ID,
+                        TRUE ~ ALT_ID),
+         EPI = "COMPLETE") %>%
+  filter(STATE == "WA")
+
+## Combined
+df.epi <- rbind(df.epi_man, df.epi_hai) %>%
+  unique() %>%
+  mutate(EPI = "COMPLETE")
+
 write.csv(df.epi, file = "epi.csv", row.names = F, quote = F)
 
-## PHOENIX
-# standard output
-load_phoenix <- function(file){
-  df <- read_tsv(file) %>%
+# PHOENIX
+df.phx_aws <- aws_sync_merge(s3_paths = phx_aws, outdir = "phx_aws", pattern = "*_summaryline.tsv") %>%
     mutate(ID = str_remove_all(ID, pattern = "-WA.*")) %>%
     rename(PHOENIX_QC = Auto_QC_Outcome, 
            PHOENIX_SPECIES = Species, 
            PHOENIX_QC_REASON = Auto_QC_Failure_Reason, 
-           TAXA_CONFIDENCE = Taxa_Confidence)
-}
-files.phx <- list.files(phx_std_data, pattern = ".tsv", full.names = T)
-tmp <- lapply(files.phx, FUN=load_phoenix)
-df.phx_std <- do.call(rbind, tmp)
+           TAXA_CONFIDENCE = Taxa_Confidence) %>%
+    unique()
 
-# Terra output
-load_terra_phoenix <- function(file){
-  df <- read_tsv(file) %>%
-    rename(ID = 1) %>%
+## Terra output
+df.phx_gs <- gs_sync_merge(gs_paths = phx_gs, outdir = "tmp/", pattern = '_summaryline.tsv', n_col = 24) %>%
     mutate(ID = str_remove_all(ID, pattern = "-WA.*")) %>%
-    mutate(Taxa_Coverage = NA) %>%
-    select(ID, 
-           qc_outcome, 
-           warning_count, 
-           estimated_coverage, 
-           genome_length, 
-           assembly_ratio, 
-           scaffold_count, 
-           gc_percent, 
-           species, 
-           taxa_confidence,
-           Taxa_Coverage,
-           taxa_source, 
-           kraken2_trimmed, 
-           kraken2_weighted,
-           mlst_scheme_1,
-           mlst_1,
-           mlst_scheme_2,
-           mlst_2,
-           beta_lactam_resistance_genes,
-           other_ar_genes,
-           amrfinder_point_mutations,
-           hypervirulence_genes,
-           plasmid_incompatibility_replicons,
-           qc_reason,
-           assembly,
-           trimmed_read1,
-           trimmed_read2)
-}
-files.terra_phx <- list.files(phx_terra_data, pattern = ".tsv", full.names = T)
-tmp <- lapply(files.terra_phx, FUN=load_terra_phoenix)
-df.phx_terra <- do.call(rbind, tmp)
-colnames(df.phx_terra) <- c(colnames(df.phx_std),"assembly","fastq_1","fastq_2")
+    rename(PHOENIX_QC = Auto_QC_Outcome, 
+           PHOENIX_SPECIES = Species, 
+           PHOENIX_QC_REASON = Auto_QC_Failure_Reason, 
+           TAXA_CONFIDENCE = Taxa_Confidence) %>%
+    unique()
 
-# Combined
-df.phx <- df.phx_terra %>% 
-  select(-assembly, -fastq_1, -fastq_2) %>% 
-  rbind(df.phx_std) %>%
+## Combined
+df.phx <- rbind(df.phx_aws, df.phx_gs) %>%
+  unique() %>%
   mutate(PHX = "COMPLETE")
 write.csv(df.phx, file = "phoenix.csv", row.names = F, quote = F)
 
-## BIGBACTER
-### load BigBacter results
-load_bigbacter <- function(file){
-  df <- read_tsv(file, col_types = cols()) %>%
-    mutate(ID = str_remove_all(ID, pattern = "-WA.*")) %>%
+# BIGBACTER
+## load BigBacter results
+df.bb <- aws_sync_merge(s3_paths = bb_aws, outdir = "bb_aws", pattern = "*-summary.tsv") %>%
+    mutate(ID = str_remove_all(ID, pattern = "-WA.*"),
+           BB = "COMPLETE") %>%
     subset(STATUS == "NEW") %>%
-    select(ID, QUAL, RUN_ID, CLUSTER) %>%
-    rename(BIGBACTER_QC = QUAL, BIGBACTER_RUN = RUN_ID)
-}
-files.bb <- list.files(bigb_data, pattern = ".tsv", full.names = T)
-tmp <- lapply(files.bb, FUN=load_bigbacter)
-df.bb <- do.call(rbind, tmp) %>%
-  mutate(BB = "COMPLETE")
+    select(ID, QUAL, RUN_ID, CLUSTER,BB) %>%
+    rename(BIGBACTER_QC = QUAL, BIGBACTER_RUN = RUN_ID) %>%
+    group_by(ID) %>%
+    top_n(1, as.numeric(BIGBACTER_RUN))
+
 
 write.csv(df.bb, file = "bigbacter.csv", row.names = F, quote = F)
 
-### get list of species with BigBacter DBs
-bb_species <- system(paste0("aws s3 ls ",bigb_db_path," | grep 'PRE' | sed 's/.*PRE//g' | tr -d '/'"), intern= T) %>%
+## get list of species with BigBacter DBs
+bb_species <- system(paste0("aws s3 ls ",bb_aws_db," | grep 'PRE' | sed 's/.*PRE//g' | tr -d '/'"), intern= T) %>%
   split(" ") %>%
   .$` ` %>%
   str_remove_all(pattern = " ") %>%
   str_replace_all(pattern = "_", replacement = " ")
 
-## NCBI
-### pull data using BigQuery
-system("mkdir ncbi")
+# NCBI
+## pull data using BigQuery
+dir.create("ncbi")
 bigquery <- function(id){
-  id <- paste0('"',id,'"')
-  query <- paste0("'SELECT * FROM \`ncbi-pathogen-detect.pdbrowser.isolates\` AS isolates, UNNEST(isolates.isolate_identifiers) AS identifier WHERE identifier = ",id,"'")
-  cmd <- paste0('bq query --nouse_legacy_sql --format=prettyjson ',query,' > ncbi/',id,'.json')
+  id_quote <- paste0('"',id,'"')
+  file <- paste0('ncbi/',id,".json")
+  query <- paste0("'SELECT * FROM \`ncbi-pathogen-detect.pdbrowser.isolates\` AS isolates, UNNEST(isolates.isolate_identifiers) AS identifier WHERE identifier = ",id_quote,"'")
+  cmd <- paste0('bq query --nouse_legacy_sql --format=prettyjson ',query,' > ',file)
   cat(cmd, sep = "\n")
   system(command = cmd, intern = T)
+
+  # remove file if empty
+  if(read_lines(file) == "[]"){
+    file.remove(file)
+  }
+
 }
 past_ids <- list.files("ncbi/") %>% str_remove_all(pattern = ".json")
 ids <- df.epi %>% 
@@ -141,7 +183,7 @@ ids <- df.epi %>%
 
 ids <- ids[!(ids %in% past_ids)]
 if(length(ids) > 0){
-  lapply(ids, FUN = bigquery)
+  #dev_null <- lapply(ids, FUN = bigquery)
 }
 
 load_ncbi <- function(file){
@@ -169,12 +211,12 @@ load_ncbi <- function(file){
   return(df)
 }
 files.ncbi <- list.files('ncbi/', pattern = ".json", full.names = T)
-tmp <- lapply(files.ncbi, FUN=load_ncbi)
-df.ncbi <- do.call(rbind, tmp) %>%
-  drop_na(ID)
-df.ncbi <- apply(df.ncbi, 2, FUN = str_replace_all, pattern = ",", replacement = ";") %>%
-  data.frame()
-write.csv(x = df.ncbi, file = "bigquery.csv", quote = F, row.names = F)
+#tmp <- lapply(files.ncbi, FUN=load_ncbi)
+#df.ncbi <- do.call(rbind, tmp) %>%
+#  drop_na(ID)
+#df.ncbi <- apply(df.ncbi, 2, FUN = str_replace_all, pattern = ",", replacement = ";") %>%
+#  data.frame()
+#write.csv(x = df.ncbi, file = "bigquery.csv", quote = F, row.names = F)
 
 #----- MERGE FILES -----# - without NCBI for now
 # join epi & phoenix
@@ -185,15 +227,63 @@ df.epi_phx <- df.epi %>%
 df.epi_phx_bb <- merge(df.epi_phx, df.bb, by = "ID", all.x = T)
 
 # join NCBI
-df.epi_phx_bb_ncbi <- merge(df.epi_phx_bb, df.ncbi, by = "ID", all.x = T)
+#df.epi_phx_bb_ncbi <- merge(df.epi_phx_bb, df.ncbi, by = "ID", all.x = T)
+df.epi_phx_bb_ncbi <- df.epi_phx_bb
 
 # replace all commas with semicolons
 df.epi_phx_bb_ncbi <- apply(df.epi_phx_bb_ncbi, 2, FUN = str_replace_all, pattern = ",", replacement = ";") %>%
   data.frame()
 
+# clean up data for master
+master <- df.epi_phx_bb_ncbi %>%
+  mutate(STATUS = case_when(is.na(PHOENIX_QC) ~ "PHOENIX_QUEUE",
+                            is.na(BIGBACTER_QC) & PHOENIX_QC == "PASS" ~ "BIGBACTER_QUEUE",
+                            PHOENIX_QC == "FAIL" ~ "PHOENIX_FAIL",
+                            BIGBACTER_QC == "FAIL" ~ "BIGBACTER_FAIL",
+                            TRUE ~ "COMPLETE"
+                            )
+         ) %>%
+  select(ID, 
+         WA_ID, 
+         ALT_ID, 
+         STATUS, 
+         PHOENIX_QC, 
+         BIGBACTER_QC, 
+         LAB_SPECIES, 
+         PHOENIX_SPECIES, 
+         TAXA_CONFIDENCE, 
+         CLUSTER, 
+         MLST_1, 
+         MLST_2, 
+         SEQ_LAB, 
+         SAMPLE_TYPE, 
+         COLLECTION_DATE, 
+         SUBMITTER, 
+         BIGBACTER_RUN,PHOENIX_QC_REASON, 
+         GAMMA_Beta_Lactam_Resistance_Genes, 
+         GAMMA_Other_AR_Genes, 
+         AMRFinder_Point_Mutations, 
+         Hypervirulence_Genes, 
+         Plasmid_Incompatibility_Replicons, 
+         #Run, 
+         #asm_acc, 
+         #bioproject_acc, 
+         #collection_date, 
+         #epi_type, 
+         #isolation_source, 
+         #mindiff, 
+         #minsame, 
+         #scientific_name, 
+         #erd_group,
+         EPI,
+         PHX,
+         BB) %>%
+         unique()
+
+
 #----- SAMPLE CHECK -----#
 ## Missing from PHoeNIx dataset
-phx_miss <- df.epi_phx_bb_ncbi %>%
+phx_miss <- master %>%
   subset(is.na(PHX))
 
 write.csv(phx_miss, file = "phoenix-miss.csv", row.names = F, quote = F)
@@ -207,7 +297,7 @@ if(nrow(phx_miss) > 0){
 }
 ## Missing from BigBacter dataset
 ### Missing but has database
-bb_miss <- df.epi_phx_bb_ncbi %>%
+bb_miss <- master %>%
   subset(PHOENIX_SPECIES %in% bb_species) %>%
   subset(is.na(BB) & PHOENIX_QC == "PASS")
 
@@ -222,7 +312,7 @@ if(nrow(bb_miss) > 0){
 write.csv(bb_miss, file = "bigbacter-miss.csv", row.names = F, quote = F)
 
 ### Missing but does not have database
-bb_miss_db <- df.epi_phx_bb_ncbi %>%
+bb_miss_db <- master %>%
   subset(!(PHOENIX_SPECIES %in% bb_species)) %>%
   subset(is.na(BB) & PHOENIX_QC == "PASS") %>%
   group_by(PHOENIX_SPECIES) %>%
@@ -239,7 +329,7 @@ if(nrow(bb_miss_db) > 0){
 }
 
 ## duplicated samples
-dup <- df.epi_phx_bb_ncbi %>%
+dup <- master %>%
   group_by(ID) %>%
   count() %>%
   subset(n > 1) 
@@ -255,27 +345,15 @@ if(nrow(dup) > 0){
 }
 
 #----- WRITE TO MASTER -----#
-# clean up data
-master <- df.epi_phx_bb_ncbi %>%
-  mutate(STATUS = case_when(is.na(PHOENIX_QC) ~ "PHOENIX_QUEUE",
-                            is.na(BIGBACTER_QC) & PHOENIX_QC == "PASS" ~ "BIGBACTER_QUEUE",
-                            PHOENIX_QC == "FAIL" ~ "PHOENIX_FAIL",
-                            BIGBACTER_QC == "FAIL" ~ "BIGBACTER_FAIL",
-                            TRUE ~ "COMPLETE"
-                            )
-         ) %>%
-  select(ID, WA_ID, ALT_ID, STATUS, PHOENIX_QC, BIGBACTER_QC, LAB_SPECIES, PHOENIX_SPECIES, TAXA_CONFIDENCE, CLUSTER, MLST_1, MLST_2, SEQ_LAB, SAMPLE_TYPE, COLLECTION_DATE, SUBMITTER, BIGBACTER_RUN,PHOENIX_QC_REASON, GAMMA_Beta_Lactam_Resistance_Genes, GAMMA_Other_AR_Genes, AMRFinder_Point_Mutations, Hypervirulence_Genes, Plasmid_Incompatibility_Replicons, Run, asm_acc, bioproject_acc, collection_date, epi_type, isolation_source, mindiff, minsame, scientific_name, erd_group)
-
-# save master
 write.csv(x = master, file = "wa-bacteria-master.csv", quote = F, row.names = F)
 
 #----- TERRA SAMPLES FOR BIGBACTER -----#
-bb_queue <- master %>%
-  data.frame() %>%
-  subset(PHOENIX_QC == "PASS" & STATUS == "BIGBACTER_QUEUE")
+#bb_queue <- master %>%
+#  data.frame() %>%
+#  subset(PHOENIX_QC == "PASS" & STATUS == "BIGBACTER_QUEUE")
 
-df.phx_terra[df.phx_terra$ID %in% bb_queue$ID,] %>%
-  select(ID, PHOENIX_SPECIES, assembly, fastq_1, fastq_2) %>%
-  rename(taxa = PHOENIX_SPECIES) %>%
-  mutate(taxa = str_replace_all(taxa, pattern = " ", replacement = "_")) %>%
-  write.csv(file = "terra-samples-for-bigbacter.csv", quote = F, row.names = F)
+#df.phx_gs[df.phx_gs$ID %in% bb_queue$ID,] %>%
+#  select(ID, PHOENIX_SPECIES, assembly, fastq_1, fastq_2) %>%
+#  rename(taxa = PHOENIX_SPECIES) %>%
+#  mutate(taxa = str_replace_all(taxa, pattern = " ", replacement = "_")) %>%
+#  write.csv(file = "terra-samples-for-bigbacter.csv", quote = F, row.names = F)
