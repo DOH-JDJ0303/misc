@@ -34,15 +34,16 @@ bb_aws_db <- args[6]
 
 #----- FUNCTIONS -----#
 # function for syncing files from AWS
-aws_sync_merge <- function(s3_paths, outdir, pattern){
-  aws_sync <- function(s3_path){
+aws_sync <- function(s3_path, pattern, outdir){
     cmd <- paste0('aws s3 sync ',s3_path,' ',outdir,' --exclude "*" --include "',pattern,'"')
     cat(paste0("CMD: ",cmd,"\n"))
     system(cmd)
-  }
+}
+# function for merging synced TSV files from AWS
+aws_sync_merge <- function(s3_paths, outdir, pattern){
   s3_paths <- str_split(s3_paths, pattern = ",") %>% 
     unlist()
-  lapply(s3_paths, FUN = aws_sync)
+  lapply(s3_paths, FUN = aws_sync, outdir = outdir, pattern = pattern)
 
   load_files <- function(file){
     df <- read_tsv(file, show_col_types = F)
@@ -120,7 +121,8 @@ df.phx_aws <- aws_sync_merge(s3_paths = phx_aws, outdir = "phx_aws", pattern = "
            PHOENIX_SPECIES = Species, 
            PHOENIX_QC_REASON = Auto_QC_Failure_Reason, 
            TAXA_CONFIDENCE = Taxa_Confidence) %>%
-    unique()
+    unique() %>%
+    mutate(PHX_RUN_LOC = "AWS")
 
 ## Terra output
 df.phx_gs <- gs_sync_merge(gs_paths = phx_gs, outdir = "tmp/", pattern = '_summaryline.tsv', n_col = 24) %>%
@@ -129,7 +131,8 @@ df.phx_gs <- gs_sync_merge(gs_paths = phx_gs, outdir = "tmp/", pattern = '_summa
            PHOENIX_SPECIES = Species, 
            PHOENIX_QC_REASON = Auto_QC_Failure_Reason, 
            TAXA_CONFIDENCE = Taxa_Confidence) %>%
-    unique()
+    unique() %>%
+    mutate(PHX_RUN_LOC = "TERRA")
 
 ## Combined
 df.phx <- rbind(df.phx_aws, df.phx_gs) %>%
@@ -147,7 +150,6 @@ df.bb <- aws_sync_merge(s3_paths = bb_aws, outdir = "bb_aws", pattern = "*-summa
     rename(BIGBACTER_QC = QUAL, BIGBACTER_RUN = RUN_ID) %>%
     group_by(ID) %>%
     top_n(1, as.numeric(BIGBACTER_RUN))
-
 
 write.csv(df.bb, file = "bigbacter.csv", row.names = F, quote = F)
 
@@ -280,6 +282,63 @@ master <- df.epi_phx_bb_ncbi %>%
          BB) %>%
          unique()
 
+#----- FETCH MOST RECENT BIGBACTER FILES -----#
+# create list of most recent files for each cluster within each species
+latest.bb <- master %>%
+  drop_na(CLUSTER) %>%
+  group_by(PHOENIX_SPECIES, CLUSTER) %>%
+  summarize(last_run = max(BIGBACTER_RUN)) %>%
+  mutate(species = str_replace_all(PHOENIX_SPECIES, pattern = " ", replacement = "_"),
+         species_cluster = paste(species,CLUSTER,sep = "-"),
+         s3_path_species = file.path(gsub("/$", "", bb_aws), last_run, species),
+         s3_path_cluster = file.path(gsub("/$", "", bb_aws), last_run, species, CLUSTER),
+         local_path_species = file.path("bb_files", species),
+         local_path_cluster = file.path("bb_files", species, CLUSTER))
+
+get_latest_bb_files <- function(sc){
+  # function for downloading the relevant files
+  sync_files <- function(){
+    ## image files
+    aws_sync(s3_path = df$s3_path_cluster, pattern = "*.jpg", outdir = df$local_path_cluster)
+    ## newick files
+    aws_sync(s3_path = file.path(df$s3_path_cluster,"variants","core"), pattern = "*.nwk", outdir = df$local_path_cluster)
+    ## alignment files
+    aws_sync(s3_path = file.path(df$s3_path_cluster,"variants","core"), pattern = "*.aln", outdir = df$local_path_cluster)
+    ## distance matrix
+    aws_sync(s3_path = file.path(df$s3_path_cluster,"variants","core"), pattern = "*.dist", outdir = df$local_path_cluster)
+    ## microreact files
+    aws_sync(s3_path = file.path(df$s3_path_species, "poppunk"), pattern = "*.microreact", outdir = df$local_path_species)
+  }
+
+  # filter based on species and cluster
+  df <- latest.bb %>%
+    filter(species_cluster == sc)
+
+  # check if the species/cluster directory exist and list files, otherwise make the directory
+  if(file.exists(df$local_path_cluster)){
+    # extract run ID from file names
+    current_id <- list.files(df$local_path_cluster, pattern = "*") %>%
+      substr(start = 1, stop = 10) %>%
+      as.numeric() %>%
+      na.omit() %>%
+      unique()
+    
+    # check if the current file is up to date
+    if(df$last_run == current_id){
+        cat(paste0(df$local_path_cluster, " is up to date. No further action taken.\n"))
+    }else{
+        cat(paste0(df$local_path_cluster, " is behind. New files being added.\n"))
+        unlink(df$local_path_cluster)
+        sync_files()
+    }
+  }else{
+    dir.create(df$local_path_cluster, recursive = T)
+    sync_files()
+  }
+  
+}
+
+dev_null <- lapply(latest.bb$species_cluster, FUN = get_latest_bb_files)
 
 #----- SAMPLE CHECK -----#
 ## Missing from PHoeNIx dataset
