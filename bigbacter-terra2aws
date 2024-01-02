@@ -1,0 +1,76 @@
+#! /usr/bin/env Rscript
+
+###---LOAD PACKAGES---###
+suppressPackageStartupMessages(library("tidyverse"))
+suppressPackageStartupMessages(library("argparse"))
+
+###---SET ARGUMENTS---###
+parser <- ArgumentParser()
+
+parser$add_argument("-t", dest="terra_table", required = T,
+                    help="Path to Terra table containing PHoeNIx pipeline results. Must in tab-separated format.")
+parser$add_argument("-s", dest="samples", required = T,
+                    help="Path to a file containing samples to be included. Must match what is in the Terra table. Do not include a header.")
+parser$add_argument("-o", dest="outdir", required = T,
+                    help="S3 bucket path.")
+args <- parser$parse_args()
+
+###----LOAD DATA, TRANSFORM & TRANSFER---###
+outdir <- file.path(args$outdir)
+df.samples <- read_tsv(args$samples, col_names = F)
+df.terra <- read_tsv(args$terra_table) %>%
+  rename(sample = 1) %>%
+  mutate(sample = str_remove_all(sample, pattern = "-WA-.*"),
+         taxa = str_replace_all(species, pattern = " ", replacement = "_"),
+         assembly_file = basename(assembly),
+         fastq_1_file = basename(trimmed_read1),
+         fastq_2_file = basename(trimmed_read2),
+         assembly_aws = paste0(outdir,"assemblies/",assembly_file),
+         fastq_1 = paste0(outdir,"reads/",fastq_1_file),
+         fastq_2 = paste0(outdir,"reads/",fastq_2_file)
+         ) %>%
+  filter(sample %in% df.samples$X1)
+gcp2aws <- function(id, df){
+  cat(paste0("Starting file transfer for ",id,":\n"))
+  df.sub <- df %>%
+    filter(sample == id)
+
+  cmd_gcp_assembly <- paste0("gsutil cp ",df.sub$assembly," ./")
+  cmd_gcp_fastq1 <- paste0("gsutil cp ",df.sub$trimmed_read1," ./")
+  cmd_gcp_fastq2 <- paste0("gsutil cp ",df.sub$trimmed_read2," ./")
+  
+  cmd_aws_assembly <- paste0("aws s3 cp ",df.sub$assembly_file," ",df.sub$assembly_aws)
+  cmd_aws_fastq1 <- paste0("aws s3 cp ",df.sub$fastq_1_file," ",df.sub$fastq_1)
+  cmd_aws_fastq2 <- paste0("aws s3 cp ",df.sub$fastq_2_file," ",df.sub$fastq_2)
+
+  cmd_rm_files <- paste("rm",df.sub$assembly_file,df.sub$fastq_1_file,df.sub$fastq_2_file, sep = " ")
+
+  exec_cmd <- function(cmd){
+    cat(cmd, sep = "\n")
+    system(cmd)
+  }
+
+  exec_cmd(cmd_gcp_assembly)
+  exec_cmd(cmd_gcp_fastq1)
+  exec_cmd(cmd_gcp_fastq2)
+
+  exec_cmd(cmd_aws_assembly)
+  exec_cmd(cmd_aws_fastq1)
+  exec_cmd(cmd_aws_fastq2)
+  
+  exec_cmd(cmd_rm_files)
+  cat("Done\n\n")
+}
+
+#dev_null <- lapply(df.terra$sample, FUN = gcp2aws, df = df.terra)
+
+###----SAVE NEW SAMPLESHEET----###
+df.terra %>%
+  select(sample,
+         taxa,
+         assembly_aws,
+         fastq_1,
+         fastq_2) %>%
+  rename(assembly = assembly_aws) %>%
+  write.csv(file = "samplesheet.csv", quote = F, row.names = F)
+
