@@ -327,8 +327,9 @@ get_latest_bb_files <- function(sc){
     if(df$last_run == current_id){
         cat(paste0(df$local_path_cluster, " is up to date. No further action taken.\n"))
     }else{
-        cat(paste0(df$local_path_cluster, " is behind. New files being added.\n"))
-        unlink(df$local_path_cluster)
+        cat(paste0(df$local_path_cluster, " is behind. Updating with new files:\n"))
+        unlink(df$local_path_cluster, recursive = T)
+        dir.create(df$local_path_cluster, recursive = T)
         sync_files()
     }
   }else{
