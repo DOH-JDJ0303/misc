@@ -29,7 +29,8 @@ df.terra <- read_tsv(args$terra_table) %>%
          fastq_1 = paste0(outdir,"reads/",fastq_1_file),
          fastq_2 = paste0(outdir,"reads/",fastq_2_file)
          ) %>%
-  filter(sample %in% df.samples$X1)
+  filter(sample %in% df.samples$X1) %>%
+  filter(qc_outcome == "PASS")
 gcp2aws <- function(id, df){
   cat(paste0("Starting file transfer for ",id,":\n"))
   df.sub <- df %>%
