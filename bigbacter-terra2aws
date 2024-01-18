@@ -9,36 +9,73 @@ parser <- ArgumentParser()
 
 parser$add_argument("-t", dest="terra_table", required = T,
                     help="Path to Terra table containing PHoeNIx pipeline results. Must in tab-separated format.")
-parser$add_argument("-s", dest="samples", required = T,
-                    help="Path to a file containing samples to be included. Must match what is in the Terra table. Do not include a header.")
+parser$add_argument("-s", dest="samples", default = "all",
+                    help="Path to a file containing samples to be included. Must match what is in the Terra table. Do not include a header. If no file is supplied then all samples in the Terra table will be included.")
 parser$add_argument("-o", dest="outdir", required = T,
                     help="S3 bucket path.")
+parser$add_argument("-p", dest="pipeline", required = T,
+                    help="Input pipeline (phoenix or theiaprok)")
 args <- parser$parse_args()
 
 ###----LOAD DATA, TRANSFORM & TRANSFER---###
 outdir <- file.path(args$outdir)
-df.samples <- read_tsv(args$samples, col_names = F)
-df.terra <- read_tsv(args$terra_table) %>%
-  rename(sample = 1) %>%
-  mutate(sample = str_remove_all(sample, pattern = "-WA-.*"),
-         taxa = str_replace_all(species, pattern = " ", replacement = "_"),
-         assembly_file = basename(assembly),
-         fastq_1_file = basename(trimmed_read1),
-         fastq_2_file = basename(trimmed_read2),
-         assembly_aws = paste0(outdir,"assemblies/",assembly_file),
-         fastq_1 = paste0(outdir,"reads/",fastq_1_file),
-         fastq_2 = paste0(outdir,"reads/",fastq_2_file)
-         ) %>%
-  filter(sample %in% df.samples$X1) %>%
-  filter(qc_outcome == "PASS")
+if(args$samples == "all"){
+  df.samples <- read_tsv(args$terra_table) %>%
+    rename(sample = 1) %>%
+    mutate(sample = str_remove_all(sample, pattern = "-WA-.*"))
+}else {
+  df.samples <- read_tsv(args$samples, col_names = F) %>%
+    rename(sample = 1) %>%
+    mutate(sample = str_remove_all(sample, pattern = "-WA-.*"))
+}
+
+if(args$pipeline == "phoenix"){
+  df.terra <- read_tsv(args$terra_table) %>%
+    rename(sample = 1) %>%
+    mutate(sample = str_remove_all(sample, pattern = "-WA-.*"),
+           taxa = str_replace_all(species, pattern = " ", replacement = "_"),
+            assembly_gs = assembly,
+           fastq_1_gs = trimmed_read1,
+           fastq_2_gs = trimmed_read2,
+           assembly_file = basename(assembly),
+           fastq_1_file = basename(trimmed_read1),
+           fastq_2_file = basename(trimmed_read2),
+           assembly_aws = paste0(outdir,"assemblies/",assembly_file),
+           fastq_1 = paste0(outdir,"reads/",fastq_1_file),
+           fastq_2 = paste0(outdir,"reads/",fastq_2_file)
+           ) %>%
+    filter(sample %in% df.samples$sample) %>%
+    filter(qc_outcome == "PASS")
+}
+
+if(args$pipeline == "theiaprok"){
+  df.terra <- read_tsv(args$terra_table) %>%
+    rename(sample = 1) %>%
+    mutate(sample = str_remove_all(sample, pattern = "-WA-.*"),
+           taxa = str_replace_all(fastani_genus_species, pattern = " ", replacement = "_"),
+           assembly_gs = assembly_fasta,
+           fastq_1_gs = read1_clean,
+           fastq_2_gs = read2_clean,
+           assembly_file = basename(assembly_fasta),
+           fastq_1_file = basename(read1_clean),
+           fastq_2_file = basename(read2_clean),
+           assembly_aws = paste0(outdir,"assemblies/",assembly_file),
+           fastq_1 = paste0(outdir,"reads/",fastq_1_file),
+           fastq_2 = paste0(outdir,"reads/",fastq_2_file)
+           ) %>%
+    filter(sample %in% df.samples$sample)
+}
+
+write.csv(df.terra, file = "test.csv")
+
 gcp2aws <- function(id, df){
   cat(paste0("Starting file transfer for ",id,":\n"))
   df.sub <- df %>%
     filter(sample == id)
 
-  cmd_gcp_assembly <- paste0("gsutil cp ",df.sub$assembly," ./")
-  cmd_gcp_fastq1 <- paste0("gsutil cp ",df.sub$trimmed_read1," ./")
-  cmd_gcp_fastq2 <- paste0("gsutil cp ",df.sub$trimmed_read2," ./")
+  cmd_gcp_assembly <- paste0("gsutil cp ",df.sub$assembly_gs," ./")
+  cmd_gcp_fastq1 <- paste0("gsutil cp ",df.sub$fastq_1_gs," ./")
+  cmd_gcp_fastq2 <- paste0("gsutil cp ",df.sub$fastq_2_gs," ./")
   
   cmd_aws_assembly <- paste0("aws s3 cp ",df.sub$assembly_file," ",df.sub$assembly_aws)
   cmd_aws_fastq1 <- paste0("aws s3 cp ",df.sub$fastq_1_file," ",df.sub$fastq_1)
@@ -63,7 +100,7 @@ gcp2aws <- function(id, df){
   cat("Done\n\n")
 }
 
-#dev_null <- lapply(df.terra$sample, FUN = gcp2aws, df = df.terra)
+dev_null <- lapply(df.terra$sample, FUN = gcp2aws, df = df.terra)
 
 ###----SAVE NEW SAMPLESHEET----###
 df.terra %>%
