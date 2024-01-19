@@ -18,7 +18,9 @@ parser$add_argument("-p", dest="pipeline", required = T,
 args <- parser$parse_args()
 
 ###----LOAD DATA, TRANSFORM & TRANSFER---###
+# set output directory
 outdir <- file.path(args$outdir)
+# get list of samples to include in output
 if(args$samples == "all"){
   df.samples <- read_tsv(args$terra_table) %>%
     rename(sample = 1) %>%
@@ -29,45 +31,41 @@ if(args$samples == "all"){
     mutate(sample = str_remove_all(sample, pattern = "-WA-.*"))
 }
 
+# prepare the Terra table depending on which Pipeline was run
+# this mainly just impacts what the columns are named
 if(args$pipeline == "phoenix"){
   df.terra <- read_tsv(args$terra_table) %>%
-    rename(sample = 1) %>%
-    mutate(sample = str_remove_all(sample, pattern = "-WA-.*"),
-           taxa = str_replace_all(species, pattern = " ", replacement = "_"),
-            assembly_gs = assembly,
+    rename(sample = 1,
+           taxa = species,
+           assembly_gs = assembly,
            fastq_1_gs = trimmed_read1,
-           fastq_2_gs = trimmed_read2,
-           assembly_file = basename(assembly),
-           fastq_1_file = basename(trimmed_read1),
-           fastq_2_file = basename(trimmed_read2),
-           assembly_aws = paste0(outdir,"assemblies/",assembly_file),
-           fastq_1 = paste0(outdir,"reads/",fastq_1_file),
-           fastq_2 = paste0(outdir,"reads/",fastq_2_file)
-           ) %>%
-    filter(sample %in% df.samples$sample) %>%
+           fastq_2_gs = trimmed_read2) %>%
     filter(qc_outcome == "PASS")
 }
-
 if(args$pipeline == "theiaprok"){
   df.terra <- read_tsv(args$terra_table) %>%
-    rename(sample = 1) %>%
-    mutate(sample = str_remove_all(sample, pattern = "-WA-.*"),
-           taxa = str_replace_all(fastani_genus_species, pattern = " ", replacement = "_"),
+    rename(sample = 1,
+           taxa = fastani_genus_species,
            assembly_gs = assembly_fasta,
            fastq_1_gs = read1_clean,
-           fastq_2_gs = read2_clean,
-           assembly_file = basename(assembly_fasta),
-           fastq_1_file = basename(read1_clean),
-           fastq_2_file = basename(read2_clean),
-           assembly_aws = paste0(outdir,"assemblies/",assembly_file),
-           fastq_1 = paste0(outdir,"reads/",fastq_1_file),
-           fastq_2 = paste0(outdir,"reads/",fastq_2_file)
-           ) %>%
-    filter(sample %in% df.samples$sample)
+           fastq_2_gs = read2_clean) 
+           # currently no automated QC step - to be added
 }
 
-write.csv(df.terra, file = "test.csv")
+# create file paths, etc.
+df.terra <- df.terra %>%
+  mutate(sample = str_remove_all(sample, pattern = "-WA-.*"),
+         taxa = str_replace_all(taxa, pattern = " ", replacement = "_"),
+         assembly_file = basename(assembly_gs),
+         fastq_1_file = basename(fastq_1_gs),
+         fastq_2_file = basename(fastq_2_gs),
+         assembly_aws = paste0(outdir,"assemblies/",assembly_file),
+         fastq_1 = paste0(outdir,"reads/",fastq_1_file),
+         fastq_2 = paste0(outdir,"reads/",fastq_2_file)
+        ) %>%
+  filter(sample %in% df.samples$sample)
 
+# function for moving files from Google to AWS
 gcp2aws <- function(id, df){
   cat(paste0("Starting file transfer for ",id,":\n"))
   df.sub <- df %>%
