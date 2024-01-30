@@ -1,0 +1,100 @@
+#!/usr/bin/env python
+
+import argparse
+import pandas as pd
+import os
+import subprocess
+
+#---LOAD PACKAGES---
+from pandas.api.types import CategoricalDtype 
+from argparse import ArgumentParser
+
+#---SET ARGUMENTS---
+parser = ArgumentParser()
+
+parser.add_argument("-t", dest="terra_table", required=True,
+                    help="Path to Terra table containing PHoeNIx or TheiaProk pipeline results. Must be in tab-separated format.") 
+parser.add_argument("-s", dest="samples", default="all",
+                    help="Path to a file containing samples to be included. Must match what is in the Terra table. Do not include a header. If no file is supplied then all samples in the Terra table will be included.") 
+parser.add_argument("-o", dest="outdir", required=True,
+                    help="S3 bucket URI path.") 
+parser.add_argument("-p", dest="pipeline", required=True,
+                    help="Input pipeline (phoenix or theiaprok)") 
+args = parser.parse_args()
+
+#---- CONFIG PANDAS ----#
+pd.set_option("display.max_rows", 1000)
+pd.set_option("display.expand_frame_repr", True)
+pd.set_option('display.width', 1000)
+pd.set_option("display.max_colwidth", 10000)
+
+#----LOAD DATA, TRANSFORM & TRANSFER---
+# set output directory
+outdir = args.outdir
+    
+# prepare the Terra table depending on which Pipeline was run 
+# this mainly just impacts what the columns are named 
+df_terra = pd.read_csv(args.terra_table, sep='\t')
+df_terra.rename(columns={ df_terra.columns[0]: "sample" }, inplace = True)
+
+if args.pipeline == "phoenix":
+    df_terra = df_terra.rename(columns={"species": "taxa",
+                                        "assembly": "assembly_gs",
+                                        "trimmed_read1": "fastq_1_gs",
+                                        "trimmed_read2": "fastq_2_gs"}).query("qc_outcome == 'PASS'") 
+elif args.pipeline == "theiaprok":
+    df_terra = df_terra.rename(columns={"fastani_genus_species": "taxa",
+                                        "assembly_fasta": "assembly_gs",
+                                        "read1_clean": "fastq_1_gs",
+                                        "read2_clean": "fastq_2_gs"})
+
+# create file paths, etc.
+df_terra["sample"] = df_terra["sample"].str.replace("-WA-.*", "") 
+df_terra["taxa"] = df_terra["taxa"].str.replace(" ", "_")
+df_terra["assembly_file"] = df_terra["assembly_gs"].apply(lambda x: os.path.basename(x))
+df_terra["fastq_1_file"] = df_terra["fastq_1_gs"].apply(lambda x: os.path.basename(x))
+df_terra["fastq_2_file"] = df_terra["fastq_2_gs"].apply(lambda x: os.path.basename(x))
+df_terra["assembly_aws"] = df_terra["assembly_file"].apply(lambda x: os.path.join(outdir, "assemblies", x)) 
+df_terra["fastq_1"] = df_terra["fastq_1_file"].apply(lambda x: os.path.join(outdir, "reads", x))
+df_terra["fastq_2"] = df_terra["fastq_2_file"].apply(lambda x: os.path.join(outdir, "reads", x))
+# subset only sampels of interest if a list is supplied
+if args.samples != "all":
+    df_samples = pd.read_csv(args.samples, sep='\t', header=None, names=["sample"])["sample"].str.replace("-WA-.*", "")
+    df_terra = df_terra[df_terra["sample"].isin(df_samples)]
+
+# function for moving files from Google to AWS 
+def gcp2aws(id, df):
+    # print message
+    print(f"Starting file transfer for {id}:")
+    # subset by sample
+    df_sub = df[df["sample"] == id]
+    # create GCP commands
+    cmd_gcp_assembly = f"gsutil cp {df_sub['assembly_gs'].to_string(index=False, header=False)} ./"
+    cmd_gcp_fastq1 = f"gsutil cp {df_sub['fastq_1_gs'].to_string(index=False, header=False)} ./"
+    cmd_gcp_fastq2 = f"gsutil cp {df_sub['fastq_2_gs'].to_string(index=False, header=False)} ./"
+    # create AWS commands
+    cmd_aws_assembly = f"aws s3 cp {df_sub['assembly_file'].to_string(index=False, header=False)} {df_sub['assembly_aws'].to_string(index=False, header=False)}"
+    cmd_aws_fastq1 = f"aws s3 cp {df_sub['fastq_1_file'].to_string(index=False, header=False)} {df_sub['fastq_1'].to_string(index=False, header=False)}"
+    cmd_aws_fastq2 = f"aws s3 cp {df_sub['fastq_2_file'].to_string(index=False, header=False)} {df_sub['fastq_2'].to_string(index=False, header=False)}"
+    # create clean up command
+    cmd_rm_files = f"rm {df_sub['assembly_file'].to_string(index=False, header=False)} {df_sub['fastq_1_file'].to_string(index=False, header=False)} {df_sub['fastq_2_file'].to_string(index=False, header=False)}"
+    # function for executing commands
+    def exec_cmd(cmd):
+        print(cmd)
+        subprocess.run(cmd, shell=True)
+    # execute GCP commands
+    exec_cmd(cmd_gcp_assembly)
+    exec_cmd(cmd_gcp_fastq1)
+    exec_cmd(cmd_gcp_fastq2)
+    # execute AWS commands
+    exec_cmd(cmd_aws_assembly)
+    exec_cmd(cmd_aws_fastq1)
+    exec_cmd(cmd_aws_fastq2)
+    # execute clean up command
+    exec_cmd(cmd_rm_files)
+    print("Done\n")
+
+_ = df_terra.apply(lambda row: gcp2aws(row["sample"], df_terra), axis=1)
+
+#----SAVE NEW SAMPLESHEET----
+df_terra[["sample", "taxa", "assembly_aws", "fastq_1", "fastq_2"]].rename(columns={"assembly_aws": "assembly"}).to_csv("samplesheet.csv", index=False, quoting=None)
