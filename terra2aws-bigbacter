@@ -49,7 +49,7 @@ elif args.pipeline == "theiaprok":
                                         "read2_clean": "fastq_2_gs"})
 
 # create file paths, etc.
-df_terra["sample"] = df_terra["sample"].str.replace("-WA-.*", "") 
+df_terra["sample"] = df_terra["sample"].str.replace("-WA.*", "") 
 df_terra["taxa"] = df_terra["taxa"].str.replace(" ", "_")
 df_terra["assembly_file"] = df_terra["assembly_gs"].apply(lambda x: os.path.basename(x))
 df_terra["fastq_1_file"] = df_terra["fastq_1_gs"].apply(lambda x: os.path.basename(x))

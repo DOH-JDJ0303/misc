@@ -40,16 +40,21 @@ aws_sync <- function(s3_path, pattern, outdir){
     system(cmd)
 }
 # function for merging synced TSV files from AWS
-aws_sync_merge <- function(s3_paths, outdir, pattern){
+aws_sync_merge <- function(s3_paths, outdir, pattern, cols = "all"){
   s3_paths <- str_split(s3_paths, pattern = ",") %>% 
     unlist()
   lapply(s3_paths, FUN = aws_sync, outdir = outdir, pattern = pattern)
 
-  load_files <- function(file){
+  load_files <- function(file, cols){
     df <- read_tsv(file, show_col_types = F)
+      if(cols != "all"){
+        df <- df %>%
+          select(cols)
+      }
+    return(df)
   }
   files <- list.files(outdir, pattern = pattern, recursive = T, full.names = T)
-  result <- do.call(rbind, lapply(files, FUN = load_files)) %>%
+  result <- do.call(rbind, lapply(files, FUN = load_files, cols = cols)) %>%
     unique()
 
   return(result)
@@ -142,7 +147,7 @@ write.csv(df.phx, file = "phoenix.csv", row.names = F, quote = F)
 
 # BIGBACTER
 ## load BigBacter results
-df.bb <- aws_sync_merge(s3_paths = bb_aws, outdir = "bb_aws", pattern = "*-summary.tsv") %>%
+df.bb <- aws_sync_merge(s3_paths = bb_aws, outdir = "bb_aws", pattern = "*-summary.tsv", cols = c(1,2,3,4,5,6)) %>%
     mutate(ID = str_remove_all(ID, pattern = "-WA.*"),
            BB = "COMPLETE") %>%
     subset(STATUS == "NEW") %>%
