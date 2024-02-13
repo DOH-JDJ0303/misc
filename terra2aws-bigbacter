@@ -46,7 +46,7 @@ elif args.pipeline == "theiaprok":
     df_terra = df_terra.rename(columns={"fastani_genus_species": "taxa",
                                         "assembly_fasta": "assembly_gs",
                                         "read1_clean": "fastq_1_gs",
-                                        "read2_clean": "fastq_2_gs"})
+                                        "read2_clean": "fastq_2_gs"}).query("aa_qc_check == 'PASS'")
 
 # create file paths, etc.
 df_terra["sample"] = df_terra["sample"].str.replace("-WA.*", "") 
