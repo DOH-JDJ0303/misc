@@ -17,7 +17,9 @@ parser.add_argument("-t", dest="terra_table", required=True,
 parser.add_argument("-s", dest="samples", default="all",
                     help="Path to a file containing samples to be included. Must match what is in the Terra table. Do not include a header. If no file is supplied then all samples in the Terra table will be included.") 
 parser.add_argument("-o", dest="outdir", required=True,
-                    help="S3 bucket URI path.") 
+                    help="Output S3 bucket URI path.") 
+parser.add_argument("-d", dest="db", required=True,
+                    help="BigBacter database S3 bucket URI path") 
 parser.add_argument("-p", dest="pipeline", required=True,
                     help="Input pipeline (phoenix or theiaprok)") 
 args = parser.parse_args()
@@ -57,7 +59,8 @@ df_terra["fastq_2_file"] = df_terra["fastq_2_gs"].apply(lambda x: os.path.basena
 df_terra["assembly_aws"] = df_terra["assembly_file"].apply(lambda x: os.path.join(outdir, "assemblies", x)) 
 df_terra["fastq_1"] = df_terra["fastq_1_file"].apply(lambda x: os.path.join(outdir, "reads", x))
 df_terra["fastq_2"] = df_terra["fastq_2_file"].apply(lambda x: os.path.join(outdir, "reads", x))
-# subset only sampels of interest if a list is supplied
+
+# subset only samples of interest if a list is supplied
 if args.samples != "all":
     df_samples = pd.read_csv(args.samples, sep='\t', header=None, names=["sample"])
     df_samples["sample"] = df_samples["sample"].str.replace("-WA.*", "")
@@ -98,4 +101,22 @@ def gcp2aws(id, df):
 _ = df_terra.apply(lambda row: gcp2aws(row["sample"], df_terra), axis=1)
 
 #----SAVE NEW SAMPLESHEET----
-df_terra[["sample", "taxa", "assembly_aws", "fastq_1", "fastq_2"]].rename(columns={"assembly_aws": "assembly"}).to_csv("samplesheet.csv", index=False, quoting=None)
+# get base name of input
+file_basename = os.path.basename(args.terra_table).replace('.tsv', '')
+
+# split samples based on if a species database exists in the supplied BigBacter database
+species = os.popen("aws s3 ls "+args.db+" | grep 'PRE' | sed 's/.*PRE//g' | tr -d '/\t\r '").read().split()
+df_yes = df_terra[df_terra['taxa'].isin(species)]
+df_no = df_terra[~df_terra['taxa'].isin(species)]
+
+# save files
+if df_yes.empty:
+    print("None of the sample species are represented in the supplied BigBacter database.")
+else:
+    df_yes[["sample", "taxa", "assembly_aws", "fastq_1", "fastq_2"]].rename(columns={"assembly_aws": "assembly"}).to_csv(file_basename+".csv", index=False, quoting=None)\
+   
+if df_no.empty:
+    print("All sample species are represented in the supplied BigBacter database.")
+else:
+    print("Only some sample species are represented in the supplied BigBacter database.")
+df_no[["sample", "taxa", "assembly_aws", "fastq_1", "fastq_2"]].rename(columns={"assembly_aws": "assembly"}).to_csv(file_basename+"_no-db.csv", index=False, quoting=None)
