@@ -51,7 +51,7 @@ elif args.pipeline == "theiaprok":
                                         "read2_clean": "fastq_2_gs"}).query("aa_qc_check == 'PASS'")
 
 # create file paths, etc.
-df_terra["sample"] = df_terra["sample"].str.replace("-WA.*", "") 
+df_terra["sample"] = df_terra["sample"].str.replace(r'-WA.*', "", regex=True) 
 df_terra["taxa"] = df_terra["taxa"].str.replace(" ", "_")
 df_terra["assembly_file"] = df_terra["assembly_gs"].apply(lambda x: os.path.basename(x))
 df_terra["fastq_1_file"] = df_terra["fastq_1_gs"].apply(lambda x: os.path.basename(x))
@@ -63,7 +63,7 @@ df_terra["fastq_2"] = df_terra["fastq_2_file"].apply(lambda x: os.path.join(outd
 # subset only samples of interest if a list is supplied
 if args.samples != "all":
     df_samples = pd.read_csv(args.samples, sep='\t', header=None, names=["sample"])
-    df_samples["sample"] = df_samples["sample"].str.replace("-WA.*", "")
+    df_samples["sample"] = df_samples["sample"].str.replace(r'-WA.*', "", regex=True)
     df_terra.merge(df_samples, left_on="sample", right_on="sample")[df_terra.columns]
 
 # function for moving files from Google to AWS 
