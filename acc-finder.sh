@@ -1,0 +1,51 @@
+# INPUT LIST
+LIST=$1
+
+# INPUT CHECK
+if [[ "$LIST" == '' ]]; then echo "Please provide a file containing NCBI accessions (SAMN, GENBANK/REFSEQ, SRA/SRS) and/or sample names" && exit 0; fi
+
+find_acc () {
+    # INPUT VALUE
+    local INPUT=$1
+
+    # BIOSAMPLE ACCESSION (SAMN NUMBER)
+    if [[ "$INPUT" =~ ^"SAMN"[0-9]+ ]]
+    then
+        # SAMN provided
+        SAMN=$INPUT
+    elif [[ "$INPUT" =~ ^"GC"[AF]"_"[0-9]+"."[0-9] ]]
+    then
+        # SRA/SRS provided
+        SAMN=$(esearch -db assembly -query $INPUT | efetch -format docsum -mode json | jq '.result[.result.uids[0]].biosampleaccn' | tr -d '"')
+    elif [[ "$INPUT" =~ ^"SR"[RA][0-9]+ ]]
+    then
+        # GENBANK/REFSEQ provided
+        SAMN=$(esearch -db sra -query $INPUT | efetch -format docsum -mode json | jq '.result[.result.uids[0]].expxml' | sed 's/.*<Biosample>//g' | sed 's/<\/Biosample>.*//g')
+    else
+        # OTHER provided (e.g., SAMPLE_NAME)
+        SAMN=$(esearch -db biosample -query 2020JQ-00083 | efetch -format docsum -mode json | jq '.result[.result.uids[0]].accession' | tr -d '"')
+    fi
+
+    # SAMPLE NAME
+    SAMPLE_NAME=$(esearch -db biosample -query $SAMN | efetch -format docsum -mode json | jq '.result[.result.uids[0]].identifiers' | tr -d ' "' | tr ';' '\n' | sed 's/.*://g' | sed -n 2p)
+
+    # SRA ACCESSION
+    SRA=$(esearch -db sra -query $SAMN | efetch -format docsum -mode json | jq '.result[.result.uids[0]].runs' | tr -d '" ' | tr '\\' '\n' | sed -n 2p)
+
+    # ASSEMBLY ACCESSION
+    GENBANK=$(esearch -db assembly -query $SAMN | efetch -format docsum -mode json | jq '.result[.result.uids[0]].synonym.genbank' | tr -d '"')
+
+    # RESULT
+    echo "$SAMPLE_NAME,$SAMN,$SRA,$GENBANK"
+
+}
+
+# RESULT HEADER
+echo "SAMPLE_NAME,SAMN,SRA,GENBANK"
+
+# LOOP OVER LIST
+for i in $(cat $LIST)
+do
+    find_acc $i
+done
+
