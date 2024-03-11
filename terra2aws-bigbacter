@@ -64,7 +64,7 @@ df_terra["fastq_2"] = df_terra["fastq_2_file"].apply(lambda x: os.path.join(outd
 if args.samples != "all":
     df_samples = pd.read_csv(args.samples, sep='\t', header=None, names=["sample"])
     df_samples["sample"] = df_samples["sample"].str.replace(r'-WA.*', "", regex=True)
-    df_terra.merge(df_samples, left_on="sample", right_on="sample")[df_terra.columns]
+    df_terra = df_terra[df_terra["sample"].isin(df_samples["sample"])]
 
 # function for moving files from Google to AWS 
 def gcp2aws(id, df):
