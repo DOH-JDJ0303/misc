@@ -11,7 +11,7 @@ from typing import List
 
 parser = ArgumentParser()
 parser.add_argument("-f", dest="access_file", required=True,
-                    help="See template. Contains access info for Terra.bio including GCS bucket, Workspace, and Project Billing. Contact your Terra.bio admin for further assistance")
+                    help="See template. Contains access info for Terra.bio including GCS bucket, Workspace, and Project Billing. See access_example.tsv in input templates directory for formatting.Contact your Terra.bio admin for further assistance")
 #parser.add_argument("--clusters", action=argparse.BooleanOptionalAction, help="Adds in recent cluster info from bigbacter") 
 parser.add_argument("--tables", dest="tables",  required=True, help="Table(s) to pull and/or push to s3 bucket", nargs="*")
 parser.add_argument('--pull', dest="pull", action='store_true', help="Pulls table(s) from Terra.bio")
