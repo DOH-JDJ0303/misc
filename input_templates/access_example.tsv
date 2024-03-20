@@ -1,0 +1,2 @@
+project_billing	workspace	bucket	dest_s3
+<terra.bio_gcs_project_billing>	<terra.bio_workspace>	<gc_bucket>	<s3_bucket_name>
