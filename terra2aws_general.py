@@ -96,4 +96,3 @@ if __name__ == "__main__":
     if clean:
          clean_by_file(table+".tsv")
          
-         
