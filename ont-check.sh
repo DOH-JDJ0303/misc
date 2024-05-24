@@ -6,7 +6,7 @@ message () {
 message "ont-check.sh v1.0\n"
 
 #----- HELP -----#
-[ -z $1 ] || [ "$1" == '-h' ] || [ "$1" == '--help' ] || [ "$1" == '-help' ] && { message "Example: ont-check.sh [URI path] [Reference path]\n\nURI Path:\t AWS URI path to ONT run directory\nReference path:\tLocal path to reference genome."; exit 0; }
+[ "$1" == '' ] || [ "$1" == '-h' ] || [ "$1" == '--help' ] || [ "$1" == '-help' ] && { message "Example: ont-check.sh [URI path] [Reference path]\n\nURI Path:\t AWS URI path to ONT run directory\nReference path:\tLocal path to reference genome."; exit 0; }
 
 set -euo pipefail
 
@@ -25,6 +25,8 @@ ID=$(echo "$RD" | tr ' ' '_')
 mkdir ${ID} > /dev/null 2>&1 || true
 cd ${ID}
 mkdir reads > /dev/null 2>&1 || true
+cp ../"$REF" ./
+REF=$(basename "$REF")
 message "Saving results to ${ID}/"
 
 #---- PREPARING READS ----#
@@ -82,6 +84,9 @@ then
     message "Quast results detected. Skipping..."
 else
     message "Comparing to reference..."
-    podman run --rm -v $PWD:/data/ docker.io/staphb/quast:5.2.0-slim quast.py -t 8 -r $REF -o /data/quast /data/flye/assembly.fasta
+    podman run --rm -v $PWD:/data/ docker.io/staphb/quast:5.2.0-slim quast.py -t 8 -r "/data/$REF" -o /data/quast /data/flye/assembly.fasta
     cp quast/report.txt ${ID}_quast.txt
 fi
+
+#----- DONE -----#
+message "Done!"
