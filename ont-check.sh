@@ -84,7 +84,7 @@ then
     message "Quast results detected. Skipping..."
 else
     message "Comparing to reference..."
-    podman run --rm -v $PWD:/data/ docker.io/staphb/quast:5.2.0-slim quast.py -t 8 -r "/data/$REF" -o /data/quast /data/flye/assembly.fasta
+    podman run --rm -v $PWD:/data/ docker.io/staphb/quast:5.2.0 quast.py -t 8 --nanopore all.fastq.gz -r "/data/$REF" -o /data/quast /data/flye/assembly.fasta
     cp quast/report.txt ${ID}_quast.txt
 fi
 
