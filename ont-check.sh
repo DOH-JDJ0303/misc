@@ -8,12 +8,12 @@ message "ont-check.sh v1.0\n"
 #----- HELP -----#
 [ "$1" == '' ] || [ "$1" == '-h' ] || [ "$1" == '--help' ] || [ "$1" == '-help' ] && { message "Example: ont-check.sh [URI path] [Reference path] [barcode (optional)]\n\nURI Path:\t AWS URI path to ONT run directory\nReference path:\tLocal path to reference genome."; exit 0; }
 
-set -euo pipefail
-
 #---- INPUTS ----#
 RUN_DIR="${1%/}/"
 REF=$2
 BARCODE=$3
+
+set -euo pipefail
 
 #----- CHECK INPUT -----#
 aws s3 ls "$RUN_DIR" > /dev/null 2>&1 || { echo "ERROR: ${RUN_DIR} is not a valid URI path"; exit 1; }
