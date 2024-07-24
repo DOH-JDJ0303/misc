@@ -23,7 +23,7 @@ find_acc () {
         SAMN=$(esearch -db sra -query $INPUT | efetch -format docsum -mode json | jq '.result[.result.uids[0]].expxml' | sed 's/.*<Biosample>//g' | sed 's/<\/Biosample>.*//g')
     else
         # OTHER provided (e.g., SAMPLE_NAME)
-        SAMN=$(esearch -db biosample -query 2020JQ-00083 | efetch -format docsum -mode json | jq '.result[.result.uids[0]].accession' | tr -d '"')
+        SAMN=$(esearch -db biosample -query $INPUT | efetch -format docsum -mode json | jq '.result[.result.uids[0]].accession' | tr -d '"')
     fi
 
     # SAMPLE NAME
