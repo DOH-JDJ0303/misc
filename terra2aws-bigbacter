@@ -33,7 +33,7 @@ pd.set_option("display.max_colwidth", 10000)
 #----LOAD DATA, TRANSFORM & TRANSFER---
 # set output directory
 outdir = args.outdir
-    
+
 # prepare the Terra table depending on which Pipeline was run 
 # this mainly just impacts what the columns are named 
 df_terra = pd.read_csv(args.terra_table, sep='\t')
@@ -114,7 +114,8 @@ if df_yes.empty:
     print("None of the sample species are represented in the supplied BigBacter database.")
 else:
     # save samplesheet locally
-    df_yes[["sample", "taxa", "assembly_aws", "fastq_1", "fastq_2"]].rename(columns={"assembly_aws": "assembly"}).to_csv(file_basename+".csv", index=False, quoting=>    outfile = os.path.join(outdir, f"{file_basename}.csv")
+    df_yes[["sample", "taxa", "assembly_aws", "fastq_1", "fastq_2"]].rename(columns={"assembly_aws": "assembly"}).to_csv(file_basename+".csv", index=False, quoting=None)
+    outfile = os.path.join(outdir, f"{file_basename}.csv")
     # upload to AWS
     cmd_upld_smplsht = f"aws s3 cp {file_basename}.csv {outfile}"
     print(cmd_upld_smplsht)
