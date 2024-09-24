@@ -113,8 +113,12 @@ df_no = df_terra[~df_terra['taxa'].isin(species)]
 if df_yes.empty:
     print("None of the sample species are represented in the supplied BigBacter database.")
 else:
-    df_yes[["sample", "taxa", "assembly_aws", "fastq_1", "fastq_2"]].rename(columns={"assembly_aws": "assembly"}).to_csv(file_basename+".csv", index=False, quoting=None)\
-   
+    # save samplesheet locally
+    df_yes[["sample", "taxa", "assembly_aws", "fastq_1", "fastq_2"]].rename(columns={"assembly_aws": "assembly"}).to_csv(file_basename+".csv", index=False, quoting=>    outfile = os.path.join(outdir, f"{file_basename}.csv")
+    # upload to AWS
+    cmd_upld_smplsht = f"aws s3 cp {file_basename}.csv {outfile}"
+    print(cmd_upld_smplsht)
+    subprocess.run(cmd_upld_smplsht, shell=True)
 if df_no.empty:
     print("All sample species are represented in the supplied BigBacter database.")
 else:
