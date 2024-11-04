@@ -1,21 +1,21 @@
 #!/bin/bash
 
-path=${1%/}
+AWS_PATH=${1%/}
 
-aws s3 cp ${path}/Phoenix_Summary.tsv ./
+aws s3 cp ${AWS_PATH}/Phoenix_Summary.tsv ./
 
 echo "sample,taxa,assembly,fastq_1,fastq_2" > manifest.csv
 
 for i in $(cat Phoenix_Summary.tsv | tr '\t' '@' | tr ' ' '_')
 do
-    id=$(echo ${i} | cut -f 1 -d '@')
-    qc=$(echo ${i} | cut -f 2 -d '@')
-    taxa=$(echo ${i} | cut -f 9 -d '@')
+    ID=$(echo ${i} | cut -f 1 -d '@'); ID=${ID%%-WAPHL*}
+    QC=$(echo ${i} | cut -f 2 -d '@')
+    TAXA=$(echo ${i} | cut -f 9 -d '@')
 
-    echo -e "${id}\t${qc}\t${taxa}"
+    echo -e "${ID}\t${QC}\t${TAXA}"
 
-    if [[ ${qc} == "PASS"  ]]
+    if [[ ${QC} == "PASS"  ]]
     then
-        echo "${id},${taxa},${path}/${id}/assembly/${id}.scaffolds.fa.gz,${path}/${id}/fastp_trimd/${id}_1.trim.fastq.gz,${path}/${id}/fastp_trimd/${id}_2.trim.fastq.gz" >> manifest.csv
+        echo "${ID},${TAXA},${AWS_PATH}/${ID}/assembly/${ID}.scaffolds.fa.gz,${AWS_PATH}/${ID}/fastp_trimd/${ID}_1.trim.fastq.gz,${AWS_PATH}/${ID}/fastp_trimd/${ID}_2.trim.fastq.gz" >> manifest.csv
     fi
 done
