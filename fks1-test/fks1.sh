@@ -5,10 +5,13 @@ R2=$3
 REF_FASTA=$4
 REF_GFF=$5
 
+seqtk sample $R1 1000000 | gzip > $PREFIX.sampled.1.fq.gz
+seqtk sample $R2 1000000 | gzip > $PREFIX.sampled.2.fq.gz
+
 if [ ! -f $PREFIX.bam ]
 then
     bwa index $REF_FASTA
-    bwa mem $REF_FASTA $R1 $R2 | samtools view -b -F 4 - | samtools sort - > $PREFIX.bam
+    bwa mem $REF_FASTA $PREFIX.sampled.1.fq.gz $PREFIX.sampled.2.fq.gz | samtools view -b -F 4 - | samtools sort - > $PREFIX.bam
 fi
 samtools mpileup -aa -A -d 0 -B -Q 0 --reference CAB11_002014T0.fna $PREFIX.bam | ivar variants -p $PREFIX -r $REF_FASTA -m 10 -g $REF_GFF -t 0.75
 cat $PREFIX.tsv | \
