@@ -5,7 +5,7 @@ R2=$3
 REF_FASTA=$4
 REF_GFF=$5
 
-if [ ! -f $NAME.$REFBASE.bam ]
+if [ ! -f $PREFIX.bam ]
 then
     bwa index $REF_FASTA
     bwa mem $REF_FASTA $R1 $R2 | samtools view -b -F 4 - | samtools sort - > $PREFIX.bam
@@ -16,7 +16,7 @@ cat $PREFIX.tsv | \
     if ( NR == 1 ) print $0, "HOTSPOT"  ; \
     else if ( $2 > 1901 && $2 < 1929 ) print $0, "hs1" ; \
     else if ( $2 > 4046 && $2 < 4071 ) print $0,"hs2" ; \
-    else if ( $2 > 2069 && $2 < 2073 ) print $0, "hs3" ; \
+    else if ( $2 > 2069 && $2 < 2074 ) print $0, "hs3" ; \
     else print $0, "" }' | \
     awk '{\
     if ( NR == 1 ) print $0, "MUTATION" ; \
