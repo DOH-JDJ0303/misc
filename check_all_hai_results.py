@@ -1,10 +1,7 @@
 import os
 import pandas as pd
 from argparse import ArgumentParser
-import json
-from pathlib import Path
-import glob
-from typing import Iterable, List, Any
+from typing import List, Any
 import boto3
 s3 = boto3.client('s3')
 
@@ -91,11 +88,14 @@ def return_missing(manifest: List, report: List) -> List[Any]:
 if workflow=="phoenix":
     manifest = f"workflow/phoenix/runs/{run}/manifest.csv"
     report = f"workflow/phoenix/runs/{run}/Phoenix_Summary.tsv"
-    s3.download_file(bucket, manifest, f"{run}_manifest.csv")
-    s3.download_file(bucket, report, f"{run}_Phoenix_Summary.tsv")
+    manifest_dl = f"{run}_manifest.csv"
+    report_dl = f"{run}_Phoenix_Summary.tsv"
 
-manifest_df = pd.read_csv(f"{run}_manifest.csv", encoding="utf-8")
-report_df = pd.read_csv(f"{run}_Phoenix_Summary.tsv", sep="\t", encoding="utf-8")
+s3.download_file(bucket, manifest, manifest_dl)
+s3.download_file(bucket, report, report_dl)
+
+manifest_df = pd.read_csv(manifest_dl, encoding="utf-8")
+report_df = pd.read_csv(report_dl, sep="\t", encoding="utf-8")
 
 
 if workflow=="phoenix":
@@ -111,6 +111,6 @@ if missing:
 else:
     print("COMPLETE")
 
-
-
-
+# Clean up
+os.remove(manifest_dl) 
+os.remove(report_dl) 
