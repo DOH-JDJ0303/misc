@@ -101,6 +101,7 @@ def scan_s3_cluster_files(bucket: str, prefix: str, sample_ids: Set[str]) -> Dic
         for obj in page.get("Contents", []):
             file_count += 1
             key = obj["Key"]
+            s3_path = f"s3://{bucket}/{key}"
             
             # Parse key structure: prefix/clusters/cluster_name/filetype/filename
             parts = key.split('/')
@@ -134,16 +135,16 @@ def scan_s3_cluster_files(bucket: str, prefix: str, sample_ids: Set[str]) -> Dic
                 
                 # Check if sample ID matches
                 if sid in sample_ids:
-                    cluster_data[cluster]['discard'].append(key)
-                    logging.debug(f"Discard: {key} (matches sample {sid})")
+                    cluster_data[cluster]['discard'].append(s3_path)
+                    logging.debug(f"Discard: {s3_path} (matches sample {sid})")
                     
                     # Track that we found this sample ID with this filetype
                     found_samples[sid][filetype] = True
                 else:
-                    cluster_data[cluster]['keep'].append(key)
+                    cluster_data[cluster]['keep'].append(s3_path)
             else:
                 # Other files in cluster (metadata, etc.)
-                cluster_data[cluster]['other'].append(key)
+                cluster_data[cluster]['other'].append(s3_path)
     
     logging.info(f"Scanned {file_count} total files across {len(cluster_data)} clusters")
     
