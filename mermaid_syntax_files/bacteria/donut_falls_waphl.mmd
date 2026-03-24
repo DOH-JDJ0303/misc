@@ -1,0 +1,49 @@
+---
+config:
+  look: neo
+  theme: default
+title: Donut Falls
+---
+flowchart TD
+    subgraph S0[input files]
+        A[/nanopore fastq/]
+        illumina[/illumina fastq/]
+    end
+    subgraph main[Donut_Falls main workflow]
+        subgraph S1[ONT-Only QC+ASsembly with flye]
+            B[filtering with fastplong to remove low-quality and short reads]
+            B --> C[rasusa for random downsampling to 150X coverage for 5M sized genome]
+            C --> D[assemble with flye]
+            D --> E[rotation with dnaapler]
+        end
+        subgraph S2[nanopore-only polishing]
+            F[mapping to assembly with circulocov]
+            F --> G[clair3 for polishing]
+            G --> H[incorporation of changes with bcftools]
+        end
+        subgraph S3[ONT-Illumina QC+Assembly with flye, short read polishing]
+            B[filtering with fastplong to remove low-quality and short reads]
+            B --> C[rasusa for random downsampling to 150X coverage for 5M sized genome]
+            C --> D[assemble with flye]
+            D --> E[rotation with dnaapler]
+        end
+    end
+    subgraph waphl[WAPHL Analysis]
+    taxa[MASH taxa]
+    human[MASH Human Contamination]
+    sum[WAPHL Summary]
+    end
+    A --> S1
+    S1 -->S2
+    S2 --> waphl
+    taxa -->sum
+    human --> sum
+    %% sum -->tsv[waphl_final_summary.tsv<br>]
+
+    %% Table node using an HTML table as label
+    subgraph final[waphl_final_summary.tsv]
+    sum --> tsv[seqkit_AvgQual<br>mash_taxa<br>human_contamination<br>reoriented_assembly_filepath, flye_busco_clair3]
+    end
+
+
+    style S1 stroke-width:4px

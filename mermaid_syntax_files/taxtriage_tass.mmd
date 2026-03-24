@@ -1,0 +1,51 @@
+---
+config:
+  layout: dagre
+  rankdir: LR
+---
+flowchart LR
+  %% Compact lanes as columns for slide-friendly layout with larger text
+  subgraph BT["BT"]
+    direction TB
+    A1["ONT sequencing"]
+    A2["Notify AMD & Binfx (request upload to S3)"]
+    D1["Report results to Epi/CDC"]
+  end
+
+  subgraph AMD["AMD"]
+    direction TB
+    B1["Upload Seqs to S3 (via script)"]
+    
+  end
+
+  subgraph BINFX["Binfx"]
+    direction TB
+    C1["Create input samplesheet"]
+    C2["TaxTriage"]
+    C3["Review results"]
+    C4["Send summary to BT (AMD cc'd)"]
+  end
+
+  %% Flow
+  A1 --> A2
+  A2 --> B1
+  B1 --> C1
+
+  C1 --> C2
+  C2 --> C3
+  C3 --> C4
+  C4 --> D1
+
+  %% Apply classes for larger, readable text and colored lanes
+  class A1,A2,D1, btNodes;
+  class B1,B2 amdNodes;
+  class C1,C2,C3,C4 binfxNodes;
+  class BT,AMD,BINFX groupNodes;
+
+  classDef btNodes fill:#FFF8E1,stroke:#F9A825,stroke-width:2px,color:#000,font-size:22px;
+  classDef amdNodes fill:#E1F5FE,stroke:#0288D1,stroke-width:2px,color:#000,font-size:22px;
+  classDef binfxNodes fill:#F3E5F5,stroke:#8E24AA,stroke-width:2px,color:#000,font-size:22px;
+  classDef groupNodes stroke-width:2px,color:#000,font-size:28px;
+
+  %% Increase overall node padding for clarity on slides
+  %%style A1,A2,B1,B2,C1,C2,C3,C4,D1 padding:18px

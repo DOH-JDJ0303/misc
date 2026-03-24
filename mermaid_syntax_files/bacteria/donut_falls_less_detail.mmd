@@ -1,0 +1,103 @@
+flowchart LR
+    %% Main workflow for ONT-only with Flye
+
+    %% Input outside the core workflow
+    A[ONT Reads]
+
+    subgraph Donut_Falls_Core_Workflow[Donut_Falls Core Workflow]
+        B[Quality Control: fastplong + rasusa]
+        C[Flye Assembly]
+        D[Assembly Stats: gfastats + bandage]
+        E[Reorient Contigs: dnaapler]
+        F[Coverage Analysis: circulocov]
+        G[Variant Calling: clair3]
+        H[Apply Variants: bcftools]
+        I[Quality Assessment: busco]
+        J[Final Summary: summary + multiqc]
+
+        %% Internal flow
+        B --> C --> D --> E --> F --> G --> H --> I --> J
+    
+
+    %% Connections from outside
+    A --> B
+
+    %% Parallel processes
+    A --> K[Read Statistics: seqkit]
+    K --> J
+    E --> M[Completeness Check: busco]
+    M --> J
+
+    %% Styling
+    classDef main fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef parallel fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    classDef summary fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+
+    class B,C,D,E,F,G,H,I main
+    class K,M parallel
+    class J summary
+    end
+
+    subgraph WAPHL_Analysis[WAPHL Analysis]
+    J --> final_summary["Final Summary"]
+    mash_taxa[MASH_TAXA]
+
+        %%     B1[Select best consensus fasta\n(priority: pypolca > polypolish > clair3 > reoriented > unicycler)]
+    %%     B2[MASH_TAXA]
+    %%     B3[MASH_HUMAN_CONTAMINATION]
+    %%     B4[COVERAGE_ANALYSIS]
+    %%     B5[FINAL_SUMMARY]
+    end
+
+
+    %% flowchart LR
+    %% %% Inputs
+    %% A1[Consensus metadata (meta, fasta)] 
+    %% A2[Consensus fasta files (all versions)]
+    %% A3[Donut_Falls summary TSV]
+    %% A4[Nanopore reads (FASTQ)]
+    %% A5[Illumina reads (R1,R2)]
+
+    %% %% Core workflow
+    %% subgraph WAPHL_ANALYSIS[WAPHL_ANALYSIS Core Workflow]
+    %%     B1[Select best consensus fasta\n(priority: pypolca > polypolish > clair3 > reoriented > unicycler)]
+    %%     B2[MASH_TAXA]
+    %%     B3[MASH_HUMAN_CONTAMINATION]
+    %%     B4[COVERAGE_ANALYSIS]
+    %%     B5[FINAL_SUMMARY]
+    %% end
+
+    %% %% Flow connections
+    %% A1 --> B1
+    %% B1 --> B2
+    %% B1 --> B3
+
+    %% %% Coverage analysis input handling
+    %% A4 --> C1[Tag as ONT]
+    %% A5 --> C2[Tag as Illumina]
+    %% C1 --> C3[Combine + prioritize ONT]
+    %% C2 --> C3
+    %% C3 --> B1
+    %% B1 --> C4[Join consensus + reads]
+    %% C4 --> B4
+
+    %% %% Final summary inputs
+    %% B2 --> D1[Taxa files]
+    %% B3 --> D2[Human contamination files]
+    %% B4 --> D3[Coverage summary]
+    %% A2 --> D4[All consensus files]
+    %% A3 --> D5[Donut_Falls summary]
+
+    %% D1 --> B5
+    %% D2 --> B5
+    %% D3 --> B5
+    %% D4 --> B5
+    %% D5 --> B5
+
+    %% %% Outputs
+    %% B2 --> O1[MASH_TAXA output]
+    %% B3 --> O2[Human contamination output]
+    %% B4 --> O3[Coverage analysis output]
+    %% B5 --> O4[Final enhanced summary]
+    %% B5 --> O5[Versions]
+
