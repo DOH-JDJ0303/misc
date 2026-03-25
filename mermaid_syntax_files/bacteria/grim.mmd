@@ -1,0 +1,87 @@
+---
+config:
+  layout: elk
+---
+flowchart TB
+
+%% ============================
+%% GRIM + LEGEND SIDE-BY-SIDE
+%% ============================
+subgraph GRIM_BLOCK [" "]
+    direction LR
+
+    %% -------------------------
+    %% GRIM SUBGRAPH
+    %% -------------------------
+    subgraph GRIM[" "]
+        direction TB
+        GRIM_TITLE["GRIM Workflow"]
+
+        Branch{"Input Format?"}
+        Files["Direct File Paths"]
+        Phoenix["Phoenix Output Dir"]
+        Resolve["Resolve Phoenix Files"]
+        AMR["Map AMR Genes from Illumina assembly to Complete Genome"]
+        ONT["Complete Genome"]
+        MOB["**MOB-suite Typer**<br>Plasmid Classification"]
+        Platon["**Platon**<br>Chromosome Classification"]
+        TIGER["**TIGER**<br>Identification of mobile genetic elements within Chromosome"]
+        EC["Genetic Element Caller<br> Final call per contig of genetic element type"]
+        Summary["Gene Summary Report"]
+    end
+
+    %% -------------------------
+    %% LEGEND (now truly to the right)
+    %% -------------------------
+    subgraph KEY["**Legend**<br>"]
+        direction TB
+        Core["Core Analyses"]
+        Dev["In Development"]
+    end
+
+end
+
+
+%% ============================
+%% MAIN FLOW
+%% ============================
+Start(["Input Samplesheet"]) --> Branch
+Branch -- Individual Files --> Files
+Branch -- Phoenix Directory --> Phoenix
+Phoenix --> Resolve
+Files --> AMR & ONT
+Resolve --> AMR & ONT
+ONT --> MOB & Platon & TIGER
+AMR --> Summary
+MOB --> Summary & EC
+Platon --> Summary & EC
+EC --> Summary
+TIGER --> Summary
+Summary --> Output(["Pipeline Outputs:<br>Classification Results by contig and by gene"])
+
+
+%% ============================
+%% LEGEND CLASS APPLICATION
+%% ============================
+Core:::core
+Dev:::dev
+
+
+%% ============================
+%% STYLE DEFINITIONS
+%% ============================
+classDef core fill:#9B59B6,color:#fff,stroke:#333,stroke-width:1px
+classDef dev fill:#fff,color:#333,stroke:#333,stroke-width:2px,stroke-dasharray:5 5
+style GRIM_BLOCK fill:transparent,stroke:transparent
+
+style GRIM_TITLE fill:transparent,stroke:transparent,font-size:24pt,font-weight:bold
+
+style AMR fill:#E74C3C,color:#fff
+style MOB fill:#9B59B6,color:#fff
+style Platon fill:#9B59B6,color:#fff,stroke-dasharray:5 5,stroke:#333,stroke-width:2px
+style TIGER fill:#9B59B6,color:#fff,stroke-dasharray:5 5,stroke:#333,stroke-width:2px
+style EC fill:#9B59B6,color:#fff,stroke-dasharray:5 5,stroke:#333,stroke-width:2px
+
+style Summary fill:#F39C12,color:#fff, stroke-dasharray:5 5
+style Start fill:#3498DB,color:#fff
+style Output fill:#27AE60,color:#fff
