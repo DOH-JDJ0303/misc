@@ -12,13 +12,6 @@ import numpy as np
 import sys
 from pathlib import Path
 
-# Source - https://stackoverflow.com/a/973488
-# Posted by Blair Conrad, modified by community. See post 'Timeline' for change history
-# Retrieved 2026-05-19, License - CC BY-SA 3.0
-
-# print(next(os.walk('.'))[1])
-# exit(1)
-
 
 parser = ArgumentParser()
 parser.add_argument("--bb", dest="bb", help='bb_input')
